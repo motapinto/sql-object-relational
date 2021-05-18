@@ -46,11 +46,11 @@ This project consists on the design of the object-relational data model for a te
 
 ###### *Shortcut:* <ins>[To the top](#Table-of-Contents)</ins>
 
-## Object Relational schema
+## Object-Relational schema
 
 ![](https://i.imgur.com/CUmISK1.png)
 
-## Object-relational data model
+## Object-Relational data model
 ### Types
 ###### *Shortcut:* <ins>[To the top](#Table-of-Contents)</ins>
 ```sql
