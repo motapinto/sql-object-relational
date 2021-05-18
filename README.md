@@ -2,10 +2,11 @@
 
 ## Table of Contents
 * [Introduction](#Introduction)
-* [Object-relational data model](#Object-relational-data-model)
+* [Object Relational Schema](#Object-Relational-Schema)
+* [Object Relational Data Model](#Object-Relational-Data-Model)
     * [Types](#Types)
     * [Methods](#Methods)
-* [Populating the object relational model](#Populating-the-object-relational-model)
+* [Populating](#Populating)
     * [Insert scripts](#Insert-scripts)
     * [Insert nested tables](#Insert-nested-tables)
 * [Introduction](#Introduction)
@@ -13,44 +14,38 @@
     * [Query 1](#Query-1)
         * SQL Formulation
         * Result
+        * Description
     * [Query 2](#Query-2)
         * SQL Formulation
         * Result
+        * Description
     * [Query 3](#Query-3)
         * SQL Formulation
         * Result
+        * Description
     * [Query 4](#Query-4)
         * SQL Formulation
         * Result
+        * Description
     * [Query 5](#Query-5)
         * SQL Formulation
         * Result
+        * Description
     * [Query 6](#Query-6)
         * SQL Formulation
         * Result
-* [Conclusion](#Conclusion)
-
-```sql
-begin
-  for i in (select 'drop type '||type_name||' force' tbl from user_types) 
-  loop
-     execute immediate i.tbl;
-  end loop;
-end;
-
-```
-    
+        * Description
+* [Conclusion](#Conclusion)    
     
 ## Introduction
-This project consists on the design of the object-relational data model for a teaching service. We start by showing our design for the schema and follow it with the necessary DDL statements to setup and populate the object types, and our approach for each query.
+This project consists on the design of the object relational data model for a teaching service. We start by showing our design for the schema and follow it with the necessary DDL statements to setup and populate the object types, and explain our approach for each query.
 
 ###### *Shortcut:* <ins>[To the top](#Table-of-Contents)</ins>
 
-## Object-Relational schema
-
+## Object Relational Schema
 ![](https://i.imgur.com/CUmISK1.png)
 
-## Object-Relational data model
+## Object Relational Data Model
 ### Types
 ###### *Shortcut:* <ins>[To the top](#Table-of-Contents)</ins>
 ```sql
@@ -82,7 +77,8 @@ create or replace type teacher_t as object (
     first_name varchar(50),
     last_name varchar(50),
     status varchar(2),
-    teaching_dist teaching_dist_tab_t
+    teaching_dist teaching_dist_tab_t,
+    map member function getHoursFactor return number
 );
 
 create or replace type teacher_tab_t as table of ref teacher_t;
@@ -97,14 +93,15 @@ create or replace type class_type_tab_t as table of ref class_type_t;
 create or replace type occurrences_t as object (
     code varchar(10),
     school_year varchar(9),
-    period varchar(2),
+    semester varchar(2),
     enrolled_num number(4),
     with_frequency number(5),
     approved number(4),
     objectives varchar(4000),
     content varchar(4000),
     department varchar(10),
-    class_type class_type_tab_t
+    class_type class_type_tab_t,
+    map member function getApprovedPercentage return number
 );
 
 create or replace type occurrences_tab_t as table of ref occurrences_t;
@@ -144,26 +141,27 @@ Finally, we create the object tables, giving a name to the auxiliary hidden tabl
 create type body class_type_t as 
     map member function getClassHours return number is 
         begin 
-        return hour_shift  * shifts;
+            return hour_shift * shifts;
         end getClassHours;
 end;
 
 create type body teaching_dist_t as 
     member function getHoursFactor return number is 
         begin 
-            return hours*factor;
+            return hours * factor;
         end getHoursFactor;
 end;
 
 create type body occurrences_t as 
     member function getApprovedPercentage return number is 
         begin 
-            return (approved/enrolled_num)*100;
+            return (approved/enrolled_num) * 100;
         end calculatePercentage;
 end;
 ```
+We decided to create some object methods that would help us in the queries ahead: `getClassHours` is a class_type object method that calculates the number of class hours by multiplying hour_shift by shift, returning the calculated value; `getHoursFactor` is a teaching_dist object method that calculates the teacher's class hours by multiplying hours by factor, returning the calculated value; Finally, `getApprovedPercentage` is a occurrences object method that calculates the percentage of approved students by dividing the number of approved students by the number of enrolled students and multiplying it by 100.
 
-## Populating the object relational model
+## Populating
 
 ### Insert scripts
 ###### *Shortcut:* <ins>[To the top](#Table-of-Contents)</ins>
@@ -181,15 +179,15 @@ insert into Teacher (nmr, name, shorthand, category, first_name, last_name, stat
 select nr, nome, sigla, categoria, proprio, apelido, estado
 from GTD10.XDOCENTES;
 
-insert into Occurrences (code, school_year, period, enrolled_num, with_frequency, approved, objectives, content, department)
-select codigo, ano_letivo, periodo, inscritos, com_frequencia, aprovados, objetivos, conteudo, departamento
+insert into Occurrences (code, school_year, semester, enrolled_num, with_frequency, approved, objectives, content, department)
+select codigo, ano_letivo, semestero, inscritos, com_frequencia, aprovados, objetivos, conteudo, departamento
 from GTD10.XOCORRENCIAS;
 
 insert into Courses (code, name, initials, course_number)
 select codigo, designacao, sigla_uc, curso
 from GTD10.XUCS;
 ```
-Using the object constructors previously mentioned we can insert the data directly into the objects.
+Using the object constructors previously mentioned we can insert the data directly into them.
 
 ### Insert nested tables
 ###### *Shortcut:* <ins>[To the top](#Table-of-Contents)</ins>
@@ -217,7 +215,7 @@ set o.class_type = cast(multiset(
     where ta.id = xta.id and
      o.code = xta.codigo and
      o.school_year = xta.ano_letivo and
-     o.period = xta.periodo
+     o.semester = xta.periodo
 ) as class_type_tab_t);    
 
 update Courses c
@@ -237,8 +235,8 @@ Finally, to add the references to the nested tables we update each one of the pr
 
 #### SQL Formulation
 ```sql
-select value(ct).type as type, sum(value(ct).shifts * value(ct).hour_shift) as classHours
-from courses c, table(value(c).occurrences ) o, table(value(o).class_Type) ct
+select value(ct).type as type, sum(value(ct).getClassHours()) as classHours
+from courses c, table(value(c).occurrences) o, table(value(o).class_Type) ct
 where value(c).course_number = 233 and 
     value(o).school_year = '2004/2005'
 group by value(ct).type
@@ -278,7 +276,7 @@ group by value(ct).type
 }
 ```
 #### Description
-For this query, for the school year of 2004/2005 and for the course whose number is 233, we calculate the sum of class hours for each class type (i.e. P, TP, and T).
+In this query, for the school year of 2004/2005 and for the course whose number is 233, we calculate the sum of class hours with the use of the `getClassHours()` method for each class type (i.e. P, TP, and T).
 
 ### Query 2
 ###### *Shortcut:* <ins>[To the top](#Table-of-Contents)</ins>
@@ -288,7 +286,7 @@ For this query, for the school year of 2004/2005 and for the course whose number
 ```sql
 select q1.code, q1.classHours as requiredHours, q2.hours as assignedHours
 from (
-    select c.code as code, sum(value(ct).shifts * value(ct).hour_shift) as classHours
+    select c.code as code, sum(value(ct).getClassHours()) as classHours
     from courses c, table(value(c).occurrences) o, table(value(o).class_type) ct
     where value(o).school_year = '2003/2004'
     group by c.code
@@ -953,6 +951,10 @@ where q1.code = q2.code and
   ]
 }
 ```
+#### Description
+We had two options for this query in which we could choose between using views or using just one sql DDL statement.
+In our first approach we decided to use two views with the objective to have a simpler query. After analysing the execution plans, we noticed that the cost was relatively higher than the one we got without using the views, so we decided to choose the second option. 
+For this option, we needed to calculate the sum of the class hours (including all different class types) for a given course, during the year of 2003/2004 and then check if the value calculated was different than the number of (planned) required hours for that course.
 
 ### Query 3
 ###### *Shortcut:* <ins>[To the top](#Table-of-Contents)</ins>
@@ -1032,7 +1034,7 @@ where q1.nmr = q2.nmr
 }
 ```
 #### Description
-We had two options for this query in which we could choose between using views or using just one sql ddl statement.
+We had two options for this query in which we could choose between using views or using just one sql DDL statement.
 In our first approach we decided to use two views with the objective to have a simpler query. After analysing the execution plans, we noticed that the cost was relatively higher than the one we got without using the views, so we decided to choose the second option. 
 For this option, we calculate the sum of the teacher's class hours with the use of the object method `getHoursFactor()` for the school year of 2003/2004. Finally, for each class type (i.e. P, OT, TP, T), we filter the teachers by the maximum sum value.
 
@@ -1516,13 +1518,13 @@ In this query we calculate the average number each teacher has for a given categ
 #### SQL Formulation
 ```sql
 select value(o).school_year as school_year, 
-    value(o).period as period, sum(value(cl).hour_shift) as hour_shift 
-from occurrences o, table(value(o).Class_Type) cl
+    value(o).semester as semester, sum(value(cl).hour_shift) as hour_shift 
+from occurrences o, table(value(o).class_type) cl
 where value(cl).num_classes is not null and 
     value(cl).shifts is not null and 
-    value(o).period like '%S'
-group by value(o).school_year, value(o).period
-order by value(o).school_year, value(o).period
+    value(o).semester like '%S'
+group by value(o).school_year, value(o).semester
+order by value(o).school_year, value(o).semester
 ```
 #### Result (in JSON format)
 ```json
@@ -1535,7 +1537,7 @@ order by value(o).school_year, value(o).period
           "type" : "VARCHAR2"
         },
         {
-          "name" : "PERIOD",
+          "name" : "SEMESTER",
           "type" : "VARCHAR2"
         },
         {
@@ -1546,62 +1548,62 @@ order by value(o).school_year, value(o).period
       "items" : [
         {
           "school_year" : "1996/1997",
-          "period" : "1S",
+          "semester" : "1S",
           "hour_shift" : 6
         },
         {
           "school_year" : "1996/1997",
-          "period" : "2S",
+          "semester" : "2S",
           "hour_shift" : 6
         },
         {
           "school_year" : "2002/2003",
-          "period" : "1S",
+          "semester" : "1S",
           "hour_shift" : 1438
         },
         {
           "school_year" : "2002/2003",
-          "period" : "2S",
+          "semester" : "2S",
           "hour_shift" : 1317
         },
         {
           "school_year" : "2003/2004",
-          "period" : "1S",
+          "semester" : "1S",
           "hour_shift" : 1431
         },
         {
           "school_year" : "2003/2004",
-          "period" : "2S",
+          "semester" : "2S",
           "hour_shift" : 1402
         },
         {
           "school_year" : "2004/2005",
-          "period" : "1S",
+          "semester" : "1S",
           "hour_shift" : 1723
         },
         {
           "school_year" : "2004/2005",
-          "period" : "2S",
+          "semester" : "2S",
           "hour_shift" : 1483
         },
         {
           "school_year" : "2005/2006",
-          "period" : "1S",
+          "semester" : "1S",
           "hour_shift" : 1745
         },
         {
           "school_year" : "2005/2006",
-          "period" : "2S",
+          "semester" : "2S",
           "hour_shift" : 1510
         },
         {
           "school_year" : "2006/2007",
-          "period" : "1S",
+          "semester" : "1S",
           "hour_shift" : 1538
         },
         {
           "school_year" : "2006/2007",
-          "period" : "2S",
+          "semester" : "2S",
           "hour_shift" : 979
         }
       ]
@@ -1621,7 +1623,7 @@ For this query, we considered every school year and the occurrencies related to 
 
 #### SQL Formulation
 ```sql
-select c.code, c.name, value(o).period as period, round(value(o).getApprovedPercentage(), 3) as percentage_approved
+select c.code, c.name, value(o).semester as semester, round(value(o).getApprovedPercentage(), 3) as percentage_approved
 from courses c, table(value(c).occurrences) o
 where regexp_like(value(c).name, '(\d)* Matemática(\d)*') and 
     value(o).enrolled_num is not null and
@@ -1645,7 +1647,7 @@ order by c.code, c.name
           "type" : "VARCHAR2"
         },
         {
-          "name" : "PERIOD",
+          "name" : "SEMESTER",
           "type" : "VARCHAR2"
         },
         {
@@ -1657,127 +1659,127 @@ order by c.code, c.name
         {
           "code" : "EC1101",
           "name" : "Análise Matemática 1",
-          "period" : "1S",
+          "semester" : "1S",
           "percentage_approved" : 48.16
         },
         {
           "code" : "EC1207",
           "name" : "Análise Matemática 2",
-          "period" : "2S",
+          "semester" : "2S",
           "percentage_approved" : 50.158
         },
         {
           "code" : "EC2103",
           "name" : "Análise Matemática 3",
-          "period" : "1S",
+          "semester" : "1S",
           "percentage_approved" : 66.187
         },
         {
           "code" : "EEC1102",
           "name" : "Análise Matemática I",
-          "period" : "1S",
+          "semester" : "1S",
           "percentage_approved" : 56.867
         },
         {
           "code" : "EEC1201",
           "name" : "Análise Matemática II",
-          "period" : "2S",
+          "semester" : "2S",
           "percentage_approved" : 30.853
         },
         {
           "code" : "EEC2101",
           "name" : "Análise Matemática III",
-          "period" : "1S",
+          "semester" : "1S",
           "percentage_approved" : 43.291
         },
         {
           "code" : "EIC1107",
           "name" : "Análise Matemática",
-          "period" : "1S",
+          "semester" : "1S",
           "percentage_approved" : 52.105
         },
         {
           "code" : "EM125",
           "name" : "Análise Matemática I",
-          "period" : "1S",
+          "semester" : "1S",
           "percentage_approved" : 54.924
         },
         {
           "code" : "EM127",
           "name" : "Análise Matemática II",
-          "period" : "2S",
+          "semester" : "2S",
           "percentage_approved" : 53.846
         },
         {
           "code" : "EM223",
           "name" : "Análise Matemática III",
-          "period" : "1S",
+          "semester" : "1S",
           "percentage_approved" : 41.071
         },
         {
           "code" : "EM224",
           "name" : "Análise Matemática IV",
-          "period" : "2S",
+          "semester" : "2S",
           "percentage_approved" : 30.672
         },
         {
           "code" : "EMG1102",
           "name" : "Análise Matemática I",
-          "period" : "1S",
+          "semester" : "1S",
           "percentage_approved" : 18.667
         },
         {
           "code" : "EMG1201",
           "name" : "Análise Matemática II",
-          "period" : "2S",
+          "semester" : "2S",
           "percentage_approved" : 43.21
         },
         {
           "code" : "EMM106",
           "name" : "Análise Matemática",
-          "period" : "2S",
+          "semester" : "2S",
           "percentage_approved" : 40.741
         },
         {
           "code" : "EQ100",
           "name" : "Análise Matemática I",
-          "period" : "1S",
+          "semester" : "1S",
           "percentage_approved" : 51.923
         },
         {
           "code" : "EQ105",
           "name" : "Análise Matemática II",
-          "period" : "2S",
+          "semester" : "2S",
           "percentage_approved" : 59.13
         },
         {
           "code" : "EQ205",
           "name" : "Análise Matemática III",
-          "period" : "1S",
+          "semester" : "1S",
           "percentage_approved" : 63.81
         },
         {
           "code" : "GEI110",
           "name" : "Análise Matemática I",
-          "period" : "1S",
+          "semester" : "1S",
           "percentage_approved" : 88.235
         },
         {
           "code" : "GEI111",
           "name" : "Análise Matemática II",
-          "period" : "2S",
+          "semester" : "2S",
           "percentage_approved" : 83.784
         },
         {
           "code" : "GEI209",
           "name" : "Análise Matemática III",
-          "period" : "1S",
+          "semester" : "1S",
           "percentage_approved" : 61.538
         },
         {
           "code" : "GEI210",
           "name" : "Análise Matemática IV",
-          "period" : "2S",
+          "semester" : "2S",
           "percentage_approved" : 64.444
         }
       ]
@@ -1791,3 +1793,4 @@ In this query, we decided to calculate the percentage of approved students (with
 
 ## Conclusion
 ###### *Shortcut:* <ins>[To the top](#Table-of-Contents)</ins>
+This work has shown us that having an Object Relational approach can vastly impact the performance of the queries. Although being impactful, our group had some difficulties finding the optimal model, leading to test different relational models using different approaches. Nonetheless, we consider that we successfully carried out the intended work while also learning a lot about Object Relational during this project. In future work, we can further improve the results and keep learning.
